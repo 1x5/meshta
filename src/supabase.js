@@ -1,4 +1,3 @@
-import fetch from 'node-fetch';
 
 class SupabaseClient {
   constructor(url, anonKey) {

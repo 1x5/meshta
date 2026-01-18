@@ -1,4 +1,3 @@
-import fetch from 'node-fetch';
 
 class TelegramBot {
   constructor(token, userId) {

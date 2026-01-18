@@ -1,4 +1,3 @@
-import fetch from 'node-fetch';
 import { load } from 'cheerio';
 import SupabaseClient from './supabase.js';
 import TelegramBot from './telegram.js';

@@ -26,13 +26,8 @@ jobs:
           node-version: '18'
           cache: 'npm'
 
-      - name: 📚 Install npm
-        uses: npm/action-setup@v2
-        with:
-          version: 8
-
       - name: 🔧 Install dependencies
-        run: npm install --frozen-lockfile
+        run: npm install
 
       - name: 🚀 Parse and send
         env:
@@ -47,7 +42,7 @@ jobs:
           # OpenAI (опционально)
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
-        run: npm parse
+        run: npm run parse
 
       - name: ✅ Completed
         if: success()

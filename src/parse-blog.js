@@ -198,6 +198,33 @@ function parseArticles(html) {
   return articles;
 }
 
+// Проверяем, есть ли статья уже в базе (по URL)
+async function articleExists(url) {
+  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) return false;
+
+  try {
+    const encodedUrl = encodeURIComponent(url);
+    const response = await fetch(
+      `${supabaseUrl}/rest/v1/meshtastic_articles?url=eq.${encodedUrl}&select=id`,
+      {
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`,
+        },
+      }
+    );
+
+    if (!response.ok) return false;
+    const rows = await response.json();
+    return Array.isArray(rows) && rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 async function sendToSupabase(article, summary, fullText) {
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
   const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
@@ -336,7 +363,14 @@ async function processArticles() {
     let successCount = 0;
 
     for (const article of articles) {
-      console.log(`\n📝 Обработка: ${article.title}`);
+      // 0. Проверяем — уже отправляли эту статью?
+      const exists = await articleExists(article.url);
+      if (exists) {
+        console.log(`⏭️  Пропуск: ${article.title} (уже отправлена)`);
+        continue;
+      }
+
+      console.log(`\n📝 Новая статья: ${article.title}`);
       console.log('─'.repeat(50));
       
       // 1. Загружаем полный текст статьи
@@ -354,7 +388,7 @@ async function processArticles() {
       // 4. Сохраняем в Supabase
       await sendToSupabase(article, summary, fullTranslation);
 
-      // 5. Отправляем в Telegram
+      // 5. Отправляем в Telegram (только новые!)
       await sendToTelegram(article, summary, fullTranslation);
       successCount++;
 

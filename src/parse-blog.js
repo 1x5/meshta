@@ -1,8 +1,8 @@
 import 'dotenv/config.js';
 import { load } from 'cheerio';
 
-async function generateRussianSummary(title, content) {
-  // Поддержка DeepSeek или OpenAI
+// Получаем API ключ и настройки
+function getAIConfig() {
   const deepseekKey = process.env.DEEPSEEK_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
   
@@ -11,16 +11,21 @@ async function generateRussianSummary(title, content) {
     ? 'https://api.deepseek.com/v1/chat/completions'
     : 'https://api.openai.com/v1/chat/completions';
   const model = deepseekKey ? 'deepseek-chat' : 'gpt-4o-mini';
+  const provider = deepseekKey ? 'DeepSeek' : 'OpenAI';
+  
+  return { apiKey, apiUrl, model, provider };
+}
+
+// Генерация краткого саммери на русском
+async function generateRussianSummary(title, content) {
+  const { apiKey, apiUrl, model, provider } = getAIConfig();
   
   if (!apiKey) {
     console.log('⚠️  AI API не настроен, используем оригинальный текст');
-    return {
-      short: content.substring(0, 200) + '...',
-      long: content.substring(0, 500) + '...',
-    };
+    return content.substring(0, 300) + '...';
   }
 
-  console.log(`🤖 Используем ${deepseekKey ? 'DeepSeek' : 'OpenAI'} для генерации резюме`);
+  console.log(`🤖 Генерируем саммери через ${provider}...`);
 
   try {
     const response = await fetch(apiUrl, {
@@ -34,24 +39,18 @@ async function generateRussianSummary(title, content) {
         messages: [
           {
             role: 'system',
-            content: 'Ты помощник радиолюбителя. Создавай краткие и информативные резюме статей о Meshtastic на русском языке. Фокусируйся на практической пользе для радиолюбителей.'
+            content: 'Ты помощник радиолюбителя. Создавай краткие и информативные резюме статей о Meshtastic на русском языке. Фокусируйся на практической пользе для радиолюбителей. Отвечай только текстом резюме, без форматирования.'
           },
           {
             role: 'user',
-            content: `Создай резюме этой статьи о Meshtastic на русском языке:
+            content: `Создай краткое резюме (3-5 предложений) этой статьи о Meshtastic на русском языке:
 
 Заголовок: ${title}
 
-Содержание: ${content}
-
-Ответь в формате JSON:
-{
-  "short": "Краткое резюме (2-3 предложения, до 200 символов)",
-  "long": "Подробное резюме (5-7 предложений, до 500 символов) с ключевыми моментами для радиолюбителя"
-}`
+Содержание: ${content.substring(0, 2000)}`
           }
         ],
-        max_tokens: 800,
+        max_tokens: 500,
         temperature: 0.7,
       }),
     });
@@ -59,36 +58,100 @@ async function generateRussianSummary(title, content) {
     if (!response.ok) {
       const error = await response.text();
       console.error('❌ Ошибка AI API:', error);
-      return {
-        short: content.substring(0, 200) + '...',
-        long: content.substring(0, 500) + '...',
-      };
+      return content.substring(0, 300) + '...';
     }
 
     const data = await response.json();
-    const text = data.choices[0].message.content;
+    const summary = data.choices[0].message.content.trim();
+    console.log('✅ Саммери сгенерировано');
+    return summary;
+  } catch (error) {
+    console.error('❌ Ошибка генерации саммери:', error.message);
+    return content.substring(0, 300) + '...';
+  }
+}
+
+// Перевод полной статьи на русский
+async function translateFullArticle(title, content) {
+  const { apiKey, apiUrl, model, provider } = getAIConfig();
+  
+  if (!apiKey) {
+    console.log('⚠️  AI API не настроен, пропускаем перевод');
+    return null;
+  }
+
+  console.log(`🌐 Переводим статью через ${provider}...`);
+
+  try {
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          {
+            role: 'system',
+            content: 'Ты переводчик технических статей о Meshtastic и радиосвязи. Переводи точно и сохраняй технические термины. Формат: простой текст без markdown.'
+          },
+          {
+            role: 'user',
+            content: `Переведи эту статью о Meshtastic на русский язык. Сохрани структуру и все технические детали:
+
+Заголовок: ${title}
+
+${content.substring(0, 4000)}`
+          }
+        ],
+        max_tokens: 2000,
+        temperature: 0.3,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('❌ Ошибка перевода:', error);
+      return null;
+    }
+
+    const data = await response.json();
+    const translation = data.choices[0].message.content.trim();
+    console.log('✅ Статья переведена');
+    return translation;
+  } catch (error) {
+    console.error('❌ Ошибка перевода статьи:', error.message);
+    return null;
+  }
+}
+
+// Загрузка полного текста статьи
+async function fetchFullArticle(url) {
+  try {
+    console.log(`📄 Загружаем полную статью: ${url}`);
+    const response = await fetch(url);
     
-    // Парсим JSON из ответа
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      console.log('✅ Сгенерировано резюме на русском');
-      return {
-        short: parsed.short || content.substring(0, 200) + '...',
-        long: parsed.long || content.substring(0, 500) + '...',
-      };
+    if (!response.ok) {
+      console.error(`❌ Ошибка загрузки статьи: ${response.status}`);
+      return null;
     }
     
-    return {
-      short: content.substring(0, 200) + '...',
-      long: content.substring(0, 500) + '...',
-    };
+    const html = await response.text();
+    const $ = load(html);
+    
+    // Извлекаем основной контент статьи
+    const content = $('article, .blog-post, [class*="content"], main')
+      .find('p, h2, h3, li')
+      .map((i, el) => $(el).text().trim())
+      .get()
+      .filter(text => text.length > 20)
+      .join('\n\n');
+    
+    return content || null;
   } catch (error) {
-    console.error('❌ Ошибка генерации резюме:', error.message);
-    return {
-      short: content.substring(0, 200) + '...',
-      long: content.substring(0, 500) + '...',
-    };
+    console.error(`❌ Ошибка загрузки статьи: ${error.message}`);
+    return null;
   }
 }
 
@@ -107,7 +170,6 @@ function parseArticles(html) {
   const $ = load(html);
   const articles = [];
 
-  // Парсим статьи с блога
   $('article, .blog-post, [class*="post"]').each((i, elem) => {
     const titleElem = $(elem).find('h2, h3, .title, [class*="title"]').first();
     const title = titleElem.text().trim();
@@ -122,7 +184,6 @@ function parseArticles(html) {
     const summary = summaryElem.text().trim();
 
     if (title && url && summary) {
-      // Преобразуем относительные URL в абсолютные
       const fullUrl = url.startsWith('http') ? url : `https://meshtastic.org${url}`;
 
       articles.push({
@@ -137,12 +198,12 @@ function parseArticles(html) {
   return articles;
 }
 
-async function sendToSupabase(article, summaries) {
+async function sendToSupabase(article, summary, fullText) {
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
   const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseKey) {
-    console.log('⏭️  Пропуск отправки в Supabase (отсутствуют credentials)');
+    console.log('⏭️  Пропуск отправки в Supabase');
     return false;
   }
 
@@ -158,14 +219,14 @@ async function sendToSupabase(article, summaries) {
         title: article.title,
         url: article.url,
         published_at: article.published_at,
-        summary_short: summaries.short,
-        summary_long: summaries.long,
-        sent_to_telegram: false,
+        summary_short: summary,
+        summary_long: fullText || summary,
+        sent_to_telegram: true,
       }),
     });
 
     if (response.ok) {
-      console.log(`✅ Сохранено в Supabase: ${article.title}`);
+      console.log(`✅ Сохранено в Supabase`);
       return true;
     } else {
       const error = await response.text();
@@ -178,53 +239,86 @@ async function sendToSupabase(article, summaries) {
   }
 }
 
-async function sendToTelegram(article, summaries) {
+// Разбивка длинного текста на части для Telegram (макс 4096 символов)
+function splitMessage(text, maxLength = 4000) {
+  if (text.length <= maxLength) return [text];
+  
+  const parts = [];
+  let current = '';
+  const paragraphs = text.split('\n\n');
+  
+  for (const para of paragraphs) {
+    if ((current + '\n\n' + para).length > maxLength) {
+      if (current) parts.push(current.trim());
+      current = para;
+    } else {
+      current = current ? current + '\n\n' + para : para;
+    }
+  }
+  if (current) parts.push(current.trim());
+  
+  return parts;
+}
+
+async function sendToTelegram(article, summary, fullTranslation) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const userId = process.env.TELEGRAM_USER_ID;
 
   if (!botToken || !userId) {
-    console.log('⏭️  Пропуск отправки в Telegram (отсутствуют credentials)');
+    console.log('⏭️  Пропуск отправки в Telegram');
     return false;
   }
 
   try {
-    // Краткое сообщение
-    const shortMessage = `📡 <b>${article.title}</b>\n\n${summaries.short}\n\n🔗 <a href="${article.url}">Читать оригинал</a>`;
+    // 1️⃣ Отправляем краткое саммери
+    const summaryMessage = `📡 <b>${article.title}</b>\n\n<b>📋 Краткое саммери:</b>\n${summary}\n\n🔗 <a href="${article.url}">Читать оригинал на английском</a>`;
 
     await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: userId,
-        text: shortMessage,
+        text: summaryMessage,
         parse_mode: 'HTML',
       }),
     });
 
-    // Небольшая задержка
-    await new Promise(resolve => setTimeout(resolve, 500));
+    console.log(`✅ Отправлено саммери в Telegram`);
 
-    // Подробное сообщение
-    const longMessage = `📡 <b>${article.title}</b>\n\n<b>Подробнее:</b>\n${summaries.long}\n\n🔗 <a href="${article.url}">Читать оригинал</a>`;
+    // 2️⃣ Отправляем полную статью на русском (если есть)
+    if (fullTranslation) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      const parts = splitMessage(fullTranslation);
+      
+      for (let i = 0; i < parts.length; i++) {
+        const header = i === 0 ? `📖 <b>Полная статья на русском:</b>\n\n` : '';
+        const footer = i === parts.length - 1 ? `\n\n<i>Часть ${i + 1}/${parts.length}</i>` : `\n\n<i>Часть ${i + 1}/${parts.length} (продолжение ниже)</i>`;
+        
+        const fullMessage = parts.length === 1 
+          ? `📖 <b>Полная статья на русском:</b>\n\n${parts[0]}`
+          : `${header}${parts[i]}${footer}`;
 
-    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: userId,
-        text: longMessage,
-        parse_mode: 'HTML',
-      }),
-    });
-
-    if (response.ok) {
-      console.log(`✅ Отправлено в Telegram: ${article.title}`);
-      return true;
-    } else {
-      const error = await response.text();
-      console.error(`❌ Ошибка Telegram: ${error}`);
-      return false;
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: userId,
+            text: fullMessage,
+            parse_mode: 'HTML',
+          }),
+        });
+        
+        // Задержка между частями
+        if (i < parts.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      }
+      
+      console.log(`✅ Отправлена полная статья (${parts.length} частей)`);
     }
+
+    return true;
   } catch (error) {
     console.error(`❌ Ошибка отправки в Telegram: ${error.message}`);
     return false;
@@ -235,35 +329,41 @@ async function processArticles() {
   try {
     console.log('🔄 Обработка статей...\n');
 
-    // Загружаем HTML
     const html = await fetchBlogPage();
-
-    // Парсим статьи
     const articles = parseArticles(html);
     console.log(`✅ Найдено статей: ${articles.length}\n`);
 
     let successCount = 0;
 
     for (const article of articles) {
-      console.log(`📝 Обработка: ${article.title}`);
+      console.log(`\n📝 Обработка: ${article.title}`);
+      console.log('─'.repeat(50));
       
-      // Генерируем резюме на русском
-      const summaries = await generateRussianSummary(article.title, article.summary);
+      // 1. Загружаем полный текст статьи
+      const fullContent = await fetchFullArticle(article.url);
       
-      // Отправляем в Supabase
-      const savedToDb = await sendToSupabase(article, summaries);
-
-      // Отправляем в Telegram
-      if (savedToDb) {
-        await sendToTelegram(article, summaries);
-        successCount++;
+      // 2. Генерируем краткое саммери на русском
+      const summary = await generateRussianSummary(article.title, fullContent || article.summary);
+      
+      // 3. Переводим полную статью на русский
+      let fullTranslation = null;
+      if (fullContent) {
+        fullTranslation = await translateFullArticle(article.title, fullContent);
       }
+      
+      // 4. Сохраняем в Supabase
+      await sendToSupabase(article, summary, fullTranslation);
 
-      // Задержка между отправками (для rate limits)
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // 5. Отправляем в Telegram
+      await sendToTelegram(article, summary, fullTranslation);
+      successCount++;
+
+      // Задержка между статьями
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
-    console.log(`\n📊 Итог: обработано ${successCount} статей`);
+    console.log(`\n${'═'.repeat(50)}`);
+    console.log(`📊 Итог: обработано ${successCount} статей`);
     return successCount;
   } catch (error) {
     console.error('❌ Критическая ошибка:', error.message);

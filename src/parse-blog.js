@@ -2,25 +2,35 @@ import 'dotenv/config.js';
 import { load } from 'cheerio';
 
 async function generateRussianSummary(title, content) {
+  // Поддержка DeepSeek или OpenAI
+  const deepseekKey = process.env.DEEPSEEK_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
   
-  if (!openaiKey) {
-    console.log('⚠️  OpenAI API не настроен, используем оригинальный текст');
+  const apiKey = deepseekKey || openaiKey;
+  const apiUrl = deepseekKey 
+    ? 'https://api.deepseek.com/v1/chat/completions'
+    : 'https://api.openai.com/v1/chat/completions';
+  const model = deepseekKey ? 'deepseek-chat' : 'gpt-4o-mini';
+  
+  if (!apiKey) {
+    console.log('⚠️  AI API не настроен, используем оригинальный текст');
     return {
       short: content.substring(0, 200) + '...',
       long: content.substring(0, 500) + '...',
     };
   }
 
+  console.log(`🤖 Используем ${deepseekKey ? 'DeepSeek' : 'OpenAI'} для генерации резюме`);
+
   try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${openaiKey}`,
+        'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: model,
         messages: [
           {
             role: 'system',
@@ -48,7 +58,7 @@ async function generateRussianSummary(title, content) {
 
     if (!response.ok) {
       const error = await response.text();
-      console.error('❌ Ошибка OpenAI:', error);
+      console.error('❌ Ошибка AI API:', error);
       return {
         short: content.substring(0, 200) + '...',
         long: content.substring(0, 500) + '...',

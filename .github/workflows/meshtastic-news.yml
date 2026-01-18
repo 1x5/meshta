@@ -1,0 +1,58 @@
+name: Meshtastic News Parser
+
+on:
+  schedule:
+    # Запускается каждые 5 минут (максимум для бесплатного плана)
+    - cron: '*/5 * * * *'
+  
+  # Возможность запустить вручную
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parse-blog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'pnpm'
+
+      - name: 📚 Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: 🔧 Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: 🚀 Parse and send
+        env:
+          # Supabase
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          
+          # Telegram
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_USER_ID: ${{ secrets.TELEGRAM_USER_ID }}
+          
+          # OpenAI (опционально)
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+        run: pnpm parse
+
+      - name: ✅ Completed
+        if: success()
+        run: echo "✨ Blog parsing completed successfully"
+
+      - name: ❌ Failed
+        if: failure()
+        run: echo "💥 Blog parsing failed - check logs"

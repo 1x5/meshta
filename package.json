@@ -1,0 +1,17 @@
+{
+  "name": "meshtastic-news-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot that sends Meshtastic blog summaries",
+  "type": "module",
+  "scripts": {
+    "parse": "node src/parse-blog.js",
+    "dev": "node src/parse-blog.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.12",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "prettier": "^3.0.0"
+  }
+}

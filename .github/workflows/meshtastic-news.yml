@@ -24,15 +24,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-          cache: 'pnpm'
+          cache: 'npm'
 
-      - name: 📚 Install pnpm
-        uses: pnpm/action-setup@v2
+      - name: 📚 Install npm
+        uses: npm/action-setup@v2
         with:
           version: 8
 
       - name: 🔧 Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm install --frozen-lockfile
 
       - name: 🚀 Parse and send
         env:
@@ -47,7 +47,7 @@ jobs:
           # OpenAI (опционально)
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
-        run: pnpm parse
+        run: npm parse
 
       - name: ✅ Completed
         if: success()

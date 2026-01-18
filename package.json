@@ -8,7 +8,8 @@
     "dev": "node src/parse-blog.js"
   },
   "dependencies": {
-    "cheerio": "^1.0.0-rc.12"
+    "cheerio": "^1.0.0-rc.12",
+    "dotenv": "^17.2.3"
   },
   "devDependencies": {
     "prettier": "^3.0.0"

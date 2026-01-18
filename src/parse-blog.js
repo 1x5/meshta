@@ -1,17 +1,5 @@
+import 'dotenv/config.js';
 import { load } from 'cheerio';
-import SupabaseClient from './supabase.js';
-import TelegramBot from './telegram.js';
-
-// Инициализация клиентов
-const supabase = new SupabaseClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.VITE_SUPABASE_ANON_KEY
-);
-
-const telegram = new TelegramBot(
-  process.env.TELEGRAM_BOT_TOKEN,
-  process.env.TELEGRAM_USER_ID
-);
 
 async function fetchBlogPage() {
   console.log('📥 Загрузка блога Meshtastic...');
@@ -49,7 +37,7 @@ function parseArticles(html) {
       articles.push({
         title,
         url: fullUrl,
-        summary: summary.substring(0, 500), // Берём первые 500 символов
+        summary: summary.substring(0, 500),
         published_at: dateStr || new Date().toISOString(),
       });
     }
@@ -58,90 +46,118 @@ function parseArticles(html) {
   return articles;
 }
 
-async function generateSummary(title, content) {
-  // Если OpenAI API недоступен, используем простое резюме
-  if (!process.env.OPENAI_API_KEY) {
-    return {
-      short: content.substring(0, 200) + '...',
-      long: content.substring(0, 500) + '...',
-    };
+async function sendToSupabase(article) {
+  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    console.log('⏭️  Пропуск отправки в Supabase (отсутствуют credentials)');
+    return false;
   }
 
   try {
-    // Здесь можно интегрировать OpenAI API для лучшего резюме
-    const shortSummary = content.substring(0, 200) + '...';
-    const longSummary = content.substring(0, 500) + '...';
+    const response = await fetch(`${supabaseUrl}/rest/v1/meshtastic_articles`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`,
+      },
+      body: JSON.stringify({
+        title: article.title,
+        url: article.url,
+        published_at: article.published_at,
+        summary_short: article.summary.substring(0, 200) + '...',
+        summary_long: article.summary.substring(0, 500) + '...',
+        sent_to_telegram: false,
+      }),
+    });
 
-    return {
-      short: shortSummary,
-      long: longSummary,
-    };
+    if (response.ok) {
+      console.log(`✅ Сохранено в Supabase: ${article.title}`);
+      return true;
+    } else {
+      const error = await response.text();
+      console.error(`❌ Ошибка Supabase: ${error}`);
+      return false;
+    }
   } catch (error) {
-    console.error('Ошибка генерации резюме:', error);
-    return {
-      short: content.substring(0, 200) + '...',
-      long: content.substring(0, 500) + '...',
-    };
+    console.error(`❌ Ошибка отправки: ${error.message}`);
+    return false;
+  }
+}
+
+async function sendToTelegram(article) {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const userId = process.env.TELEGRAM_USER_ID;
+
+  if (!botToken || !userId) {
+    console.log('⏭️  Пропуск отправки в Telegram (отсутствуют credentials)');
+    return false;
+  }
+
+  try {
+    const message = `📡 ${article.title}\n\n${article.summary.substring(0, 200)}...\n\n🔗 <a href="${article.url}">Читать полную статью</a>`;
+
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        chat_id: userId,
+        text: message,
+        parse_mode: 'HTML',
+      }),
+    });
+
+    if (response.ok) {
+      console.log(`✅ Отправлено в Telegram: ${article.title}`);
+      return true;
+    } else {
+      const error = await response.text();
+      console.error(`❌ Ошибка Telegram: ${error}`);
+      return false;
+    }
+  } catch (error) {
+    console.error(`❌ Ошибка отправки в Telegram: ${error.message}`);
+    return false;
   }
 }
 
 async function processArticles() {
   try {
-    console.log('🔄 Обработка статей...');
+    console.log('🔄 Обработка статей...\n');
 
     // Загружаем HTML
     const html = await fetchBlogPage();
 
     // Парсим статьи
     const articles = parseArticles(html);
-    console.log(`✅ Найдено статей: ${articles.length}`);
+    console.log(`✅ Найдено статей: ${articles.length}\n`);
 
-    let newArticles = 0;
+    let successCount = 0;
 
     for (const article of articles) {
-      try {
-        // Проверяем, есть ли уже такая статья
-        const exists = await supabase.articleExists(article.url);
+      console.log(`📝 Обработка: ${article.title}`);
+      
+      // Отправляем в Supabase
+      const savedToDb = await sendToSupabase(article);
 
-        if (exists) {
-          console.log(`⏭️  Пропуск: ${article.title} (уже обработана)`);
-          continue;
-        }
-
-        console.log(`📝 Обработка: ${article.title}`);
-
-        // Генерируем резюме
-        const summaries = await generateSummary(article.title, article.summary);
-
-        // Сохраняем в Supabase
-        const result = await supabase.insert('meshtastic_articles', {
-          title: article.title,
-          url: article.url,
-          published_at: article.published_at,
-          summary_short: summaries.short,
-          summary_long: summaries.long,
-          sent_to_telegram: true, // Отмечаем как отправленную сразу
-        });
-
-        // Отправляем в Telegram
-        if (result && result.length > 0) {
-          const articleData = result[0];
-          await telegram.sendArticle(articleData);
-          console.log(`✅ Отправлено в Telegram: ${article.title}`);
-          newArticles++;
-        }
-
-        // Задержка между отправками для соблюдения rate limits
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      } catch (error) {
-        console.error(`❌ Ошибка обработки статьи "${article.title}":`, error.message);
+      // Отправляем в Telegram
+      if (savedToDb) {
+        await sendToTelegram(article);
+        successCount++;
       }
+
+      // Задержка между отправками
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
 
-    console.log(`\n📊 Итог: обработано ${newArticles} новых статей`);
-    return newArticles;
+    console.log(`\n📊 Итог: обработано ${successCount} статей`);
+    return successCount;
   } catch (error) {
-    console.error('❌ Критическая ошибка:', error);
+    console.error('❌ Критическая ошибка:', error.message);
     throw error;
   }
 }
@@ -150,7 +166,7 @@ async function processArticles() {
 processArticles()
   .then(count => {
     console.log('\n✨ Успешно завершено');
-    process.exit(count > 0 ? 0 : 1);
+    process.exit(0);
   })
   .catch(error => {
     console.error('\n💥 Ошибка:', error);
